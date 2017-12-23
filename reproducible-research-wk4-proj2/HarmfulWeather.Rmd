@@ -1,0 +1,133 @@
+---
+title: "HarmfulWeather"
+author: "Kunal Chowdhury"
+date: "23/12/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+```
+
+## Synopsis
+The purpose of this report is to explore the NOAA Storm Database and answer some basic questions about the human and economic impacts from severe weather events.
+
+The results of this study are that **Tronados** cause the greatest economic damage and the greatest health impact among all weather event types.
+
+## Raw Data
+Our raw data are taken from [National Weather Service Instruction 10-1605][1]. The events in the database start in the year 1950 and end in November 2011. Fatalities, injuries, and property damage (in dollars) are totaled over that time.  
+
+[1]: https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf "National Weather Service Instruction 10-1605"
+
+Downloaded the raw data set from the course link and read it using `read.csv`.
+```{r cache=TRUE}
+download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2",
+              "StormData.csv.bz2", mode="wb")
+data = read.csv(bzfile("StormData.csv.bz2"), header=TRUE)
+```
+
+## Data Processing
+For the purpose of this study, only the weather event types and the human and economic impact data are necessary. The other columns are dropped.
+```{r}
+data <- data[,c("REFNUM","EVTYPE", "FATALITIES", "INJURIES", "PROPDMG", "PROPDMGEXP",
+                "CROPDMG", "CROPDMGEXP")]
+```
+
+Re-calculated the damage numbers using the rules from the investigation done [here](https://rstudio-pubs-static.s3.amazonaws.com/58957_37b6723ee52b455990e149edde45e5b6.html).
+```{r}
+fix_damage <- function(df, dmg, dmgexp) {
+    df[[dmg]] <- ifelse(df[[dmgexp]] %in% as.character(seq(0,8)),
+                        df[[dmg]] * 10, df[[dmg]])
+    df[[dmg]] <- ifelse(df[[dmgexp]] %in% c("-", "?", ""),
+                        df[[dmg]] * 10, df[[dmg]])
+    df[[dmg]] <- ifelse(tolower(df[[dmgexp]]) == "h",
+                        df[[dmg]] * 100, df[[dmg]])
+    df[[dmg]] <- ifelse(tolower(df[[dmgexp]]) == "k",
+                        df[[dmg]] * 1000, df[[dmg]])
+    df[[dmg]] <- ifelse(tolower(df[[dmgexp]]) == "b",
+                        df[[dmg]] * 1000 ^ 2, df[[dmg]])
+    df[[dmg]] <- ifelse(tolower(df[[dmgexp]]) == "m",
+                        df[[dmg]] * 1000 ^ 3, df[[dmg]])
+    return(df)
+}
+
+data <- fix_damage(data, "PROPDMG", "PROPDMGEXP")
+data <- fix_damage(data, "CROPDMG", "CROPDMGEXP")
+
+data <- data[,c("EVTYPE", "FATALITIES", "INJURIES", "PROPDMG", "CROPDMG")]
+```
+
+`EVTYPE` column contained fragmented and inconsistent factor levels. There was no obvious way to group them and normalize them. The following ordered rules were observed in another study [here]("http://redheadedstepdata.io/large-weather-events/"). They have been co-opted for the purpose of simplicity.
+```{r}
+data$eventType <- as.character(data$EVTYPE)  
+data$eventType[grepl("tornad", data$eventType, ignore.case=TRUE)] <- "TORNADO"  
+data$eventType[grepl("thun.*orm", data$eventType, ignore.case=TRUE)] <- "THUNDERSTORM"  
+data$eventType[grepl("tstm", data$eventType, ignore.case=TRUE)] <- "THUNDERSTORM"  
+data$eventType[grepl("snow", data$eventType, ignore.case=TRUE)] <- "SNOW"  
+data$eventType[grepl("blizzard", data$eventType, ignore.case=TRUE)] <- "BLIZZARD"  
+data$eventType[grepl("hail", data$eventType, ignore.case=TRUE)] <- "HAIL"  
+data$eventType[grepl("rain", data$eventType, ignore.case=TRUE)] <- "RAIN"  
+data$eventType[grepl("precip", data$eventType, ignore.case=TRUE)] <- "RAIN"  
+data$eventType[grepl("hurricane", data$eventType, ignore.case=TRUE)] <- "HURRICANE"  
+data$eventType[grepl("tropical.*storm", data$eventType, ignore.case=TRUE)] <- "TROPICALSTORM"  
+data$eventType[grepl("flood", data$eventType, ignore.case=TRUE)] <- "FLOOD"  
+data$eventType[grepl("fire", data$eventType, ignore.case=TRUE)] <- "FIRE"  
+data$eventType[grepl("lightn", data$eventType, ignore.case=TRUE)] <- "LIGHTNING"  
+data$eventType[grepl("wind", data$eventType, ignore.case=TRUE)] <- "WIND"  
+data$eventType[grepl("cold", data$eventType, ignore.case=TRUE)] <- "COLD"  
+data$eventType[grepl("heat", data$eventType, ignore.case=TRUE)] <- "HEAT"  
+data$eventType[grepl("storm surge", data$eventType, ignore.case=TRUE)] <- "STORM SURGE"  
+data$eventType <- as.factor(data$eventType)
+
+data <- data[,c("eventType", "EVTYPE", "FATALITIES", "INJURIES", "PROPDMG", "CROPDMG")]
+```
+
+The Property damage and Crop damage is added together for each weather event. The Injuries and Fatalities are also added together for each weather event.
+```{r}
+data$damage <- data$PROPDMG + data$CROPDMG
+data$casualties <- data$INJURIES + data$FATALITIES
+data <- data[,c("eventType", "EVTYPE", "casualties", "damage")]
+```
+
+## Results
+### Economic Consequences
+The damage to crops and property from harmful weather events are summed up for each event type. Then, the data are ordered by the total damage in descending order and plotted.
+```{r}
+data_dmg <- aggregate(damage ~ eventType, data, sum)
+data_dmg <- data_dmg[order(-data_dmg$damage),]
+data_dmg <- data_dmg[1:10,]
+data_dmg$damage <- data_dmg$damage / 10 ^ 9
+max_dmg_EVTYPE <- as.character(data[data$eventType == data_dmg[1,]$eventType,]$EVTYPE[1])
+
+ggplot(data_dmg, aes(x=reorder(eventType, damage), y=damage)) +
+    geom_bar(stat='identity', position="dodge") + coord_flip() +
+    labs(y="US Dollars (Billions)", x="Event Type", title="Total Economic Damage")
+```
+
+### Population Health
+The casualties to the human population from harmful weather events are summed up for each event type. Then, the data are ordered by the total casualties in descending order and plotted.
+```{r}
+data_cas <- aggregate(casualties ~ eventType, data, sum)
+data_cas <- data_cas[order(-data_cas$casualties),]
+data_cas <- data_cas[1:10,]
+max_cas_EVTYPE <- as.character(data[data$eventType == data_cas[1,]$eventType,]$EVTYPE[1])
+
+ggplot(data_cas, aes(x=reorder(eventType, casualties), y=casualties)) +
+    geom_bar(stat='identity', position="dodge") + coord_flip() +
+    labs(y="Casualties", x="Event Type",
+         title="Total Casualties (Injuries + Fatalities)")
+```
+
+**Conclusion:**  
+The most harmful `EVTYPE` with respect to **population health** is **`r max_dmg_EVTYPE`**  
+The greatest **economic consequences** are caused by the `EVTYPE` of **`r max_cas_EVTYPE`**
+
+## Development Environment
+- OS: mac OS High Sierra version 10.13.2
+- Processor: 2.3 GHz Intel Core i5
+- Memory: 16 GB 2133 MHz LPDDR3
+- R system: x86_64, darwin15.6.0
+- R version: 3.4.2 (2017-09-28)
+- ggplot2 version: 2.2.1
+- R Studio version: 1.1.383

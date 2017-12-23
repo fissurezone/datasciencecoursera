@@ -32,7 +32,14 @@ vignettes/*.pdf
 *.utf8.md
 *.knit.md
 
+# Mac temp files
+.DS_Store
+
 # data files
 data-cleaning-wk4-quiz/*.csv
 exploratory-data-analysis-course-project/*.zip
 exploratory-data-analysis-course-project/*.rds
+specdata/
+outcome-of-care-measures.csv
+hospital-data.csv
+reproducible-research-wk4-proj2/StormData.csv.bz2
